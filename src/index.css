@@ -1,10 +1,37 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
 
+:root {
+  --bg-color: #ffffff;
+  --sidebar-bg: #f0f4f9;
+  --text-color: #282828;
+  --nav-text: #585858;
+  --card-bg: #f0f4f9;
+  --card-hover: #dfe4ea;
+  --input-bg: #f0f4f9;
+  --main-bg: #ffffff;
+}
+
+[data-theme='dark'] {
+  --bg-color: #131314;
+  --sidebar-bg: #1e1f20;
+  --text-color: #e3e3e3;
+  --nav-text: #c4c7c5;
+  --card-bg: #1e1f20;
+  --card-hover: #333537;
+  --input-bg: #1e1f20;
+  --main-bg: #131314;
+}
+
 *{
   padding: 0;
   margin: 0;
   box-sizing: border-box;
   font-family: Outfit;
+}
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s, color 0.3s;
 }
 #root{
   min-height: 100vh;
