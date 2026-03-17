@@ -1,27 +1,40 @@
 import { createContext, useState, useEffect } from "react";
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const Context = createContext();
 
 const ContextProvider = (props) => {
     const [input, setInput] = useState("");
     const [recentPrompt, setRecentPrompt] = useState("");
-    const [prevPrompts, setPrevPrompts] = useState([]); // This might be redundant now with sessions
+    const [prevPrompts, setPrevPrompts] = useState([]);
     const [showResult, setShowResult] = useState(false);
     const [loading, setLoading] = useState(false);
     const [resultData, setResultData] = useState("");
     const [sessionId, setSessionId] = useState(null);
-    const [image, setImage] = useState(null);
+    const [fileData, setFileData] = useState(null);
+    const [mimeType, setMimeType] = useState(null);
+    const [fileName, setFileName] = useState("");
     const [darkMode, setDarkMode] = useState(false);
     const [userName, setUserName] = useState("Chan");
     
+    // Gems State
+    const [gems, setGems] = useState([]);
+    const [selectedGemId, setSelectedGemId] = useState(null);
+
     // Advanced Sidebar & Header State
     const [sessions, setSessions] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [filteredSessions, setFilteredSessions] = useState([]);
 
+    // Deep Research State
+    const [isDeepResearch, setIsDeepResearch] = useState(false);
+
+    // Voice State
+    const [isListening, setIsListening] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+
     useEffect(() => {
         fetchSessions();
+        fetchGems();
     }, []);
 
     useEffect(() => {
@@ -41,6 +54,34 @@ const ContextProvider = (props) => {
             setSessions(data);
         } catch (error) {
             console.error("Error fetching sessions:", error);
+        }
+    };
+
+    const fetchGems = async () => {
+        try {
+            const response = await fetch("http://localhost:5000/api/gems", {
+                headers: { "Authorization": "Bearer simulation-token" }
+            });
+            const data = await response.json();
+            setGems(data);
+        } catch (error) {
+            console.error("Error fetching gems:", error);
+        }
+    };
+
+    const createGem = async (gemData) => {
+        try {
+            await fetch("http://localhost:5000/api/gems", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer simulation-token"
+                },
+                body: JSON.stringify(gemData)
+            });
+            fetchGems();
+        } catch (error) {
+            console.error("Error creating gem:", error);
         }
     };
 
@@ -65,7 +106,9 @@ const ContextProvider = (props) => {
                 headers: { "Authorization": "Bearer simulation-token" }
             });
             const data = await response.json();
-            // Assuming we want to show the last interaction
+            if (data.gemId) setSelectedGemId(data.gemId._id || data.gemId);
+            else setSelectedGemId(null);
+
             if (data.messages && data.messages.length > 0) {
                 const lastUserMsg = [...data.messages].reverse().find(m => m.role === 'user');
                 const lastModelMsg = [...data.messages].reverse().find(m => m.role === 'model');
@@ -129,9 +172,56 @@ const ContextProvider = (props) => {
         setShowResult(false);
         setResultData("");
         setSessionId(null);
-        setImage(null);
+        setFileData(null);
+        setMimeType(null);
+        setFileName("");
         setRecentPrompt("");
     }
+
+    const startVoiceInput = () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Speech recognition is not supported in this browser.");
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => setIsListening(true);
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            setInput(transcript);
+        };
+        recognition.onerror = (event) => {
+            console.error("Speech recognition error:", event.error);
+            setIsListening(false);
+        };
+        recognition.onend = () => setIsListening(false);
+
+        recognition.start();
+    };
+
+    const speakText = (text) => {
+        if (!('speechSynthesis' in window)) return;
+        
+        window.speechSynthesis.cancel();
+        setIsSpeaking(true);
+        
+        const utterance = new SpeechSynthesisUtterance(text.replace(/[*#]/g, ''));
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = () => setIsSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+    };
+
+    const stopSpeaking = () => {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            setIsSpeaking(false);
+        }
+    };
     
     const onSent = async (prompt) => {
         setResultData("");
@@ -145,36 +235,44 @@ const ContextProvider = (props) => {
         try {
             const body = {
                 sessionId: sessionId,
-                prompt: promptToSend
+                prompt: promptToSend,
+                gemId: selectedGemId
             };
 
-            if (image) {
-                body.image = image;
+            if (fileData && mimeType) {
+                body.fileData = fileData;
+                body.mimeType = mimeType;
             }
 
-            const response = await fetch("http://localhost:5000/api/chat", {
+            const endpoint = isDeepResearch ? "http://localhost:5000/api/research" : "http://localhost:5000/api/chat";
+            
+            const response = await fetch(endpoint, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": "Bearer simulation-token"
                 },
-                body: JSON.stringify(body)
+                body: JSON.stringify(isDeepResearch ? { query: promptToSend } : body)
             });
 
             if (!response.ok) {
                 throw new Error("Failed to fetch from backend");
             }
 
-            const headerSessionId = response.headers.get("x-session-id");
-            if (headerSessionId) {
-                setSessionId(headerSessionId);
+            if (!isDeepResearch) {
+                const headerSessionId = response.headers.get("x-session-id");
+                if (headerSessionId) {
+                    setSessionId(headerSessionId);
+                }
             }
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let accumulatedResponse = "";
             setLoading(false);
-            setImage(null);
+            setFileData(null);
+            setMimeType(null);
+            setFileName("");
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -184,7 +282,11 @@ const ContextProvider = (props) => {
                 accumulatedResponse += chunk;
                 setResultData(accumulatedResponse);
             }
-            fetchSessions(); // Refresh list after sending
+            fetchSessions();
+            
+            if (!isDeepResearch) {
+                speakText(accumulatedResponse);
+            }
             
         } catch (error) {
             console.error("Error in ContextProvider onSent:", error);
@@ -209,8 +311,12 @@ const ContextProvider = (props) => {
         setResultData,
         sessionId,
         setSessionId,
-        image,
-        setImage,
+        fileData,
+        setFileData,
+        mimeType,
+        setMimeType,
+        fileName,
+        setFileName,
         darkMode,
         setDarkMode,
         userName,
@@ -223,7 +329,17 @@ const ContextProvider = (props) => {
         renameSession,
         deleteSession,
         pinSession,
-        fetchSessions
+        fetchSessions,
+        gems,
+        selectedGemId,
+        setSelectedGemId,
+        createGem,
+        isDeepResearch,
+        setIsDeepResearch,
+        isListening,
+        startVoiceInput,
+        isSpeaking,
+        stopSpeaking
     };
 
     return (

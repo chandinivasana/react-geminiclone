@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Session from './models/Session.js';
+import Gem from './models/Gem.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -16,7 +17,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Increase limit for file uploads
 
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/gemini-clone')
@@ -36,16 +37,26 @@ const authMiddleware = (req, res, next) => {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.post('/api/chat', authMiddleware, async (req, res) => {
-  const { sessionId, prompt, image } = req.body;
+  const { sessionId, prompt, fileData, mimeType, gemId } = req.body;
 
   try {
     let session = sessionId ? await Session.findById(sessionId) : null;
     if (!session) {
       session = new Session({ 
         title: prompt.substring(0, 50) || 'New Chat',
-        messages: [] 
+        messages: [],
+        gemId: gemId || null
       });
       await session.save();
+    }
+
+    // Fetch associated gem for system prompt
+    let systemInstruction = undefined;
+    if (session.gemId) {
+      const gem = await Gem.findById(session.gemId);
+      if (gem && gem.systemPrompt) {
+        systemInstruction = gem.systemPrompt;
+      }
     }
 
     // Context window: take the last 10 messages
@@ -54,7 +65,14 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       parts: msg.parts.map(p => ({ text: p.text })),
     }));
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const modelOptions = { 
+      model: 'gemini-1.5-flash',
+      tools: [{ googleSearch: {} }]
+    };
+    if (systemInstruction) {
+      modelOptions.systemInstruction = systemInstruction;
+    }
+    const model = genAI.getGenerativeModel(modelOptions);
     
     // Start chat with history
     const chat = model.startChat({
@@ -67,13 +85,12 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
     res.setHeader('x-session-id', session._id.toString());
 
     const promptParts = [{ text: prompt }];
-    if (image) {
-      const [header, data] = image.split(',');
-      const mimeType = header.match(/:(.*?);/)[1];
+    if (fileData && mimeType) {
+      const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
       promptParts.push({
         inlineData: {
-          data,
-          mimeType,
+          data: base64Data,
+          mimeType: mimeType,
         },
       });
     }
@@ -99,10 +116,57 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
   }
 });
 
-// Get session history
+// Deep Research endpoint
+app.post('/api/research', authMiddleware, async (req, res) => {
+  const { query } = req.body;
+  
+  try {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-pro',
+      tools: [{ googleSearch: {} }],
+      systemInstruction: "You are an expert research assistant. Deconstruct the user's query into 3-5 sub-topics, synthesize a comprehensive report with an Executive Summary, Detailed Findings, and Conclusion. Format entirely in Markdown."
+    });
+
+    const result = await model.generateContentStream(`Conduct deep research on: ${query}`);
+    
+    for await (const chunk of result.stream) {
+      res.write(chunk.text());
+    }
+    res.end();
+  } catch (error) {
+    console.error('Error in /api/research:', error);
+    res.status(500).json({ error: 'Deep research failed' });
+  }
+});
+
+// --- Gems endpoints ---
+app.get('/api/gems', authMiddleware, async (req, res) => {
+  try {
+    const gems = await Gem.find().sort({ createdAt: -1 });
+    res.json(gems);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch gems' });
+  }
+});
+
+app.post('/api/gems', authMiddleware, async (req, res) => {
+  const { name, description, systemPrompt, icon } = req.body;
+  try {
+    const newGem = new Gem({ name, description, systemPrompt, icon });
+    await newGem.save();
+    res.json(newGem);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create gem' });
+  }
+});
+
+// --- Session endpoints ---
 app.get('/api/session/:id', authMiddleware, async (req, res) => {
   try {
-    const session = await Session.findById(req.params.id);
+    const session = await Session.findById(req.params.id).populate('gemId');
     if (!session) return res.status(404).json({ error: 'Session not found' });
     res.json(session);
   } catch (error) {
@@ -110,30 +174,27 @@ app.get('/api/session/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// List all sessions
 app.get('/api/sessions', authMiddleware, async (req, res) => {
   try {
-    const sessions = await Session.find().sort({ isPinned: -1, updatedAt: -1 });
+    const sessions = await Session.find().sort({ isPinned: -1, updatedAt: -1 }).populate('gemId');
     res.json(sessions);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch sessions' });
   }
 });
 
-// Search sessions
 app.get('/api/chats/search', authMiddleware, async (req, res) => {
   const { q } = req.query;
   try {
     const sessions = await Session.find({
       title: { $regex: q, $options: 'i' }
-    }).sort({ updatedAt: -1 });
+    }).sort({ updatedAt: -1 }).populate('gemId');
     res.json(sessions);
   } catch (error) {
     res.status(500).json({ error: 'Failed to search sessions' });
   }
 });
 
-// Update session (rename/pin)
 app.put('/api/chats/:id', authMiddleware, async (req, res) => {
   const { title, isPinned } = req.body;
   const update = {};
@@ -153,7 +214,6 @@ app.put('/api/chats/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Delete session
 app.delete('/api/chats/:id', authMiddleware, async (req, res) => {
   try {
     const session = await Session.findByIdAndDelete(req.params.id);
@@ -164,10 +224,9 @@ app.delete('/api/chats/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Create new session
 app.post('/api/session', authMiddleware, async (req, res) => {
   try {
-    const session = new Session({ messages: [] });
+    const session = new Session({ messages: [], gemId: req.body.gemId || null });
     await session.save();
     res.json({ sessionId: session._id });
   } catch (error) {

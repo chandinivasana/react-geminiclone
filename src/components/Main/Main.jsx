@@ -20,11 +20,17 @@ import {
   Copy,
   Twitter,
   Linkedin,
-  LogOut
+  LogOut,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  FileText,
+  Microscope,
+  Bot
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
-import { motion, AnimatePresence } from "framer-motion";
 
 const Main = () => {
     const { 
@@ -35,15 +41,28 @@ const Main = () => {
         resultData, 
         setInput, 
         input, 
-        setImage, 
-        image, 
+        fileData,
+        setFileData,
+        mimeType,
+        setMimeType,
+        fileName,
+        setFileName,
         userName, 
         setUserName,
         searchQuery,
         setSearchQuery,
         darkMode,
         setDarkMode,
-        sessionId
+        sessionId,
+        isListening,
+        startVoiceInput,
+        isSpeaking,
+        stopSpeaking,
+        isDeepResearch,
+        setIsDeepResearch,
+        gems,
+        selectedGemId,
+        setSelectedGemId
     } = useContext(Context);
     
     const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -53,12 +72,14 @@ const Main = () => {
         onSent(promptText);
     };
 
-    const handleImageChange = (e) => {
+    const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (file) {
+            setFileName(file.name);
+            setMimeType(file.type);
             const reader = new FileReader();
             reader.onloadend = () => {
-                setImage(reader.result);
+                setFileData(reader.result);
             };
             reader.readAsDataURL(file);
         }
@@ -88,6 +109,35 @@ const Main = () => {
             <div className="header">
                 <div className="header-left">
                     <p>Gemini</p>
+                    
+                    {/* Gem Selector Dropdown */}
+                    <DropdownMenu.Root>
+                        <DropdownMenu.Trigger asChild>
+                            <button className="gem-selector-btn">
+                                <Bot size={16} />
+                                <span>
+                                    {selectedGemId 
+                                        ? gems.find(g => g._id === selectedGemId)?.name || 'Custom Gem'
+                                        : 'Standard'}
+                                </span>
+                            </button>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Portal>
+                            <DropdownMenu.Content className="dropdown-content" sideOffset={5} align="start">
+                                <DropdownMenu.Label className="dropdown-label">Select AI Agent (Gem)</DropdownMenu.Label>
+                                <DropdownMenu.Item className="dropdown-item" onClick={() => setSelectedGemId(null)}>
+                                    <span>Standard (No Gem)</span>
+                                    {selectedGemId === null && <Check size={16} />}
+                                </DropdownMenu.Item>
+                                {gems.map((gem) => (
+                                    <DropdownMenu.Item key={gem._id} className="dropdown-item" onClick={() => setSelectedGemId(gem._id)}>
+                                        <span>{gem.name}</span>
+                                        {selectedGemId === gem._id && <Check size={16} />}
+                                    </DropdownMenu.Item>
+                                ))}
+                            </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
                 </div>
                 
                 <div className="header-center">
@@ -103,6 +153,14 @@ const Main = () => {
                 </div>
 
                 <div className="header-right">
+                    <button 
+                        className={`icon-btn ${isDeepResearch ? 'active-research' : ''}`} 
+                        onClick={() => setIsDeepResearch(!isDeepResearch)}
+                        title="Toggle Deep Research Mode"
+                    >
+                        <Microscope size={20} color={isDeepResearch ? "#10b981" : "currentColor"} />
+                    </button>
+
                     <button className="icon-btn" onClick={() => setDarkMode(!darkMode)}>
                         {darkMode ? <Sun size={20} /> : <Moon size={20} />}
                     </button>
@@ -146,7 +204,7 @@ const Main = () => {
                     <>
                         <div className="greet">
                             <p><span>Hello, {userName}.</span></p>
-                            <p>How can I help you today?</p>
+                            <p>{isDeepResearch ? 'Deep Research mode is active. What do you want to analyze?' : 'How can I help you today?'}</p>
                         </div>
                         <div className="cards">
                             <div className="card" onClick={() => handleCardClick("Suggest beautiful place to see on an upcoming road trip")}>
@@ -182,7 +240,12 @@ const Main = () => {
                                     <hr />
                                 </div>
                                 : <div className='markdown-container'>
-                                    {image && <img src={image} alt="Selected" className="image-preview" />}
+                                    {fileData && mimeType?.startsWith('image/') && <img src={fileData} alt="Attached" className="image-preview" />}
+                                    {fileData && !mimeType?.startsWith('image/') && (
+                                        <div className="file-attachment-preview">
+                                            <FileText size={16} /> {fileName}
+                                        </div>
+                                    )}
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
                                         components={{
@@ -207,6 +270,11 @@ const Main = () => {
                                     >
                                         {resultData}
                                     </ReactMarkdown>
+                                    {isSpeaking && (
+                                        <button className="stop-speech-btn" onClick={stopSpeaking}>
+                                            <VolumeX size={16} /> Stop Speaking
+                                        </button>
+                                    )}
                                   </div>
                             }
                         </div>
@@ -218,30 +286,38 @@ const Main = () => {
                         <input
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
+                                if (e.key === 'Enter' && input) {
                                     onSent(input);
                                 }
                             }}
                             value={input}
                             type="text"
-                            placeholder="Enter the prompt here"
+                            placeholder={isListening ? "Listening..." : "Enter the prompt here"}
+                            disabled={isListening}
                         />
                         <div>
                             <input
                                 type="file"
-                                accept="image/*"
-                                id="imageInput"
+                                accept="image/*,application/pdf,audio/*"
+                                id="fileInput"
                                 style={{ display: 'none' }}
-                                onChange={handleImageChange}
+                                onChange={handleFileChange}
                             />
-                            <label htmlFor="imageInput">
-                                <img src={assets.gallery_icon} alt="Gallery icon" style={{ cursor: 'pointer' }} />
+                            <label htmlFor="fileInput">
+                                <img src={assets.gallery_icon} alt="Attach file" style={{ cursor: 'pointer' }} />
                             </label>
-                            {image && <p className="image-attached">Image Attached</p>}
-                            <img src={assets.mic_icon} alt="Mic icon" />
+                            
+                            <button 
+                                className={`mic-btn ${isListening ? 'listening' : ''}`} 
+                                onClick={isListening ? () => {} : startVoiceInput}
+                            >
+                                {isListening ? <Mic size={24} color="#f43f5e" /> : <Mic size={24} />}
+                            </button>
+
                             {input ? <img onClick={() => onSent(input)} src={assets.send_icon} alt="Send icon" className='send-icon' /> : null}
                         </div>
                     </div>
+                    {fileName && <p className="file-attached-info">Attached: {fileName} <button onClick={() => {setFileData(null); setFileName(''); setMimeType(null)}}>x</button></p>}
                     <p className="bottom-info">
                         Gemini can malfunction sometimes! crosscheck dude
                     </p>

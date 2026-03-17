@@ -10,6 +10,7 @@ const SessionSchema = new mongoose.Schema({
   title: { type: String, default: 'New Chat' },
   messages: [MessageSchema],
   isPinned: { type: Boolean, default: false },
+  gemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Gem', default: null }
 }, { timestamps: true });
 
 export default mongoose.model('Session', SessionSchema);
