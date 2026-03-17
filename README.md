@@ -57,6 +57,3 @@ A high-fidelity reimplementation of the Google Gemini web application. This proj
    npm run dev
    ```
 
-## License
-
-MIT
