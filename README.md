@@ -6,10 +6,10 @@ A high-fidelity reimplementation of the Google Gemini web application. This proj
 
 - **Core Chat UI**: Responsive, fluid interface with real-time streaming responses and typing indicators.
 - **Multimodal Support**: Upload and analyze images, PDFs, and audio files directly within the chat.
-- **Gemini Live**: Voice-to-text input and text-to-speech AI responses for hands-free interaction.
+- **Gemini Live**: Real-time voice interaction powered by **WebSockets** and Web Speech API.
 - **AI Gems**: Create and switch between specialized AI personas (Gems) with custom system instructions.
 - **Deep Research**: A dedicated mode using Gemini 1.5 Pro to deconstruct complex queries and generate structured, long-form reports.
-- **Session Persistence**: Full conversation history management with MongoDB, including pinning, renaming, and searching chats.
+- **Session Persistence**: Full conversation history management with **Prisma ORM and PostgreSQL**, including pinning, renaming, and searching chats.
 - **Google Search Grounding**: Real-time web data integration for factual accuracy in responses.
 - **Markdown & Code Highlighting**: Full support for formatted text, tables, and syntax-highlighted code blocks.
 - **Dark Mode**: Seamless theme switching with persistent user preferences.
@@ -17,8 +17,8 @@ A high-fidelity reimplementation of the Google Gemini web application. This proj
 ## Tech Stack
 
 - **Frontend**: React.js, Vite, Lucide React, Framer Motion, Radix UI
-- **Backend**: Node.js, Express.js
-- **Database**: MongoDB (via Mongoose)
+- **Backend**: Node.js, Express.js, WebSockets (ws)
+- **Database**: PostgreSQL (via Prisma ORM)
 - **AI**: Google Generative AI SDK (Gemini API)
 - **Styling**: Vanilla CSS (Modern CSS variables)
 
@@ -27,7 +27,7 @@ A high-fidelity reimplementation of the Google Gemini web application. This proj
 ### Prerequisites
 
 - Node.js (v18+)
-- MongoDB (Local or Atlas)
+- PostgreSQL (Local or Cloud instance)
 - Gemini API Key (from Google AI Studio)
 
 ### Installation
@@ -43,9 +43,10 @@ A high-fidelity reimplementation of the Google Gemini web application. This proj
    cd backend
    # Create a .env file with:
    # PORT=5000
-   # MONGODB_URI=your_mongodb_uri
+   # DATABASE_URL=your_postgresql_uri
    # GEMINI_API_KEY=your_api_key
    npm install
+   npx prisma generate
    node server.js
    ```
 
@@ -55,3 +56,7 @@ A high-fidelity reimplementation of the Google Gemini web application. This proj
    npm install
    npm run dev
    ```
+
+## License
+
+MIT
